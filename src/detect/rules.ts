@@ -21,7 +21,9 @@ export interface RuleConfig {
   breachStreak: number
   /** Readings held per device for drift analysis. */
   windowSize: number
-  /** Fractional deviation of window mean from band centre that counts as drift. */
+  /** Readings used to establish a device's own baseline before drift is judged. */
+  baselineSize: number
+  /** Fractional deviation of the window mean from that baseline that counts as drift. */
   driftTolerance: number
   /** Silence beyond this many ms means the device is presumed dead. */
   silenceMs: number
@@ -33,6 +35,7 @@ export const DEFAULT_RULES: RuleConfig = {
   // and one operators learn to ignore.
   breachStreak: 3,
   windowSize: 20,
+  baselineSize: 40,
   driftTolerance: 0.15,
   silenceMs: 60_000,
 }
@@ -43,15 +46,29 @@ export interface DeviceWindow {
   lastSeen: number
   /** Suppresses repeat alerts for a condition already reported. */
   firing: Set<Anomaly['type']>
+  /**
+   * The device's own established mean, learned from its first `baselineSize`
+   * readings. Undefined until enough history exists — drift is not judged
+   * before then.
+   */
+  baseline?: number
+  /** Running total used to compute the baseline, discarded once it is set. */
+  seen: number
+  sum: number
 }
 
 export function emptyWindow(now: number): DeviceWindow {
-  return { readings: [], lastSeen: now, firing: new Set() }
+  return { readings: [], lastSeen: now, firing: new Set(), seen: 0, sum: 0 }
 }
 
 export function push(window: DeviceWindow, reading: Reading, cfg: RuleConfig): DeviceWindow {
   const readings = [...window.readings, reading].slice(-cfg.windowSize)
-  return { ...window, readings, lastSeen: reading.timestamp }
+  const seen = window.seen + 1
+  const sum = window.sum + reading.value
+  // Learn the baseline once, from the device's own early behaviour.
+  const baseline =
+    window.baseline ?? (seen >= cfg.baselineSize ? sum / seen : undefined)
+  return { ...window, readings, lastSeen: reading.timestamp, seen, sum, baseline }
 }
 
 const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length
@@ -109,13 +126,20 @@ export function evaluate(
   if (!streakBreached) firing.delete('threshold_breach')
 
   // ── Drift ──
-  // Deliberately requires a full window. Drift is a slow failure; calling it on
-  // three readings would just be a noisier threshold rule.
+  //
+  // Measured against the device's OWN baseline, not the centre of its allowed
+  // band. That distinction matters: an electricity meter legitimately swings
+  // from near-idle overnight to peak mid-afternoon, so its honest mean sits
+  // nowhere near mid-band. Judging it against band centre flags healthy
+  // hardware every single day — which is precisely the alert fatigue the
+  // breach-streak rule exists to avoid.
+  //
+  // Requires both a full window and an established baseline. Drift is a slow
+  // failure; calling it early would just be a noisier threshold rule.
   let drifted = false
-  if (window.readings.length === cfg.windowSize) {
-    const centre = (min + max) / 2
+  if (window.readings.length === cfg.windowSize && window.baseline !== undefined) {
     const observed = mean(window.readings.map((r) => r.value))
-    const deviation = Math.abs(observed - centre) / (centre || 1)
+    const deviation = Math.abs(observed - window.baseline) / (Math.abs(window.baseline) || 1)
     drifted = deviation > cfg.driftTolerance
 
     if (drifted && !firing.has('sensor_drift')) {
@@ -124,7 +148,7 @@ export function evaluate(
         ...base,
         type: 'sensor_drift',
         severity: 'warning',
-        detail: `Window mean ${observed.toFixed(1)} is ${(deviation * 100).toFixed(0)}% from band centre ${centre.toFixed(1)}`,
+        detail: `Window mean ${observed.toFixed(1)} is ${(deviation * 100).toFixed(0)}% from this device's baseline ${window.baseline.toFixed(1)}`,
         evidence: window.readings.slice(-5),
       })
     }

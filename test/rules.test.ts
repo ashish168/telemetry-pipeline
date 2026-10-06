@@ -97,18 +97,61 @@ test('drift needs a full window — it is not a noisy threshold rule', () => {
   assert.equal(anomalies.filter((a) => a.type === 'sensor_drift').length, 0)
 })
 
-test('a full window biased off centre fires drift', () => {
-  // Band is 20–26, centre 23. A mean of 30 is ~30% off.
+test('drift waits for a baseline to be established', () => {
+  // A full window, but fewer readings than baselineSize — nothing to compare to.
   const w = windowOf(Array(DEFAULT_RULES.windowSize).fill(30))
-  const { anomalies } = evaluate(device, w, T0 + 20_000)
-  const drift = anomalies.find((a) => a.type === 'sensor_drift')
-  assert.ok(drift, 'expected sensor_drift')
-})
-
-test('a full window centred in band does not fire drift', () => {
-  const w = windowOf(Array(DEFAULT_RULES.windowSize).fill(23))
+  assert.equal(w.baseline, undefined)
   const { anomalies } = evaluate(device, w, T0 + 20_000)
   assert.equal(anomalies.filter((a) => a.type === 'sensor_drift').length, 0)
+})
+
+test('a device that moves away from its own baseline fires drift', () => {
+  // Establish a baseline around 23, then shift to 30.
+  const w = windowOf([
+    ...Array(DEFAULT_RULES.baselineSize).fill(23),
+    ...Array(DEFAULT_RULES.windowSize).fill(30),
+  ])
+  assert.ok(w.baseline !== undefined, 'baseline should be established')
+  const { anomalies } = evaluate(device, w, T0 + 60_000)
+  assert.ok(anomalies.find((a) => a.type === 'sensor_drift'), 'expected sensor_drift')
+})
+
+test('a device holding steady at its baseline does not fire drift', () => {
+  const w = windowOf(Array(DEFAULT_RULES.baselineSize + DEFAULT_RULES.windowSize).fill(23))
+  const { anomalies } = evaluate(device, w, T0 + 60_000)
+  assert.equal(anomalies.filter((a) => a.type === 'sensor_drift').length, 0)
+})
+
+// Regression. The first version measured drift against the centre of the
+// allowed band, which flagged every healthy device whose normal operation is
+// not centred — an electricity meter idles overnight and peaks mid-afternoon,
+// so its honest mean sits well below mid-band. The CI demo caught this firing
+// on a device with no seeded fault at all.
+test('a healthy device operating off-centre but stable does not fire drift', () => {
+  const meter: Device = {
+    deviceId: 'meter-01',
+    kind: 'electricity_meter',
+    buildingId: 'bldg-a',
+    floor: 0,
+    normalRange: { min: 30, max: 90 }, // centre 60
+    unit: 'kwh',
+  }
+  // Consistently around 43 — well inside the band, nowhere near its centre.
+  const values = Array(DEFAULT_RULES.baselineSize + DEFAULT_RULES.windowSize)
+    .fill(0)
+    .map((_, i) => 43 + (i % 3))
+
+  let w = emptyWindow(T0)
+  values.forEach((v, i) => {
+    w = push(w, { ...reading(v, i * 1000), deviceId: 'meter-01', kind: 'electricity_meter', unit: 'kwh' }, DEFAULT_RULES)
+  })
+
+  const { anomalies } = evaluate(meter, w, T0 + values.length * 1000)
+  assert.equal(
+    anomalies.length,
+    0,
+    `a stable healthy device must stay silent, got: ${anomalies.map((a) => a.type).join(', ')}`,
+  )
 })
 
 test('window is bounded by windowSize — memory stays O(devices)', () => {

@@ -12,10 +12,26 @@
 // Time is compressed — one simulated hour per tick — so a demo shows a full
 // day within a couple of minutes.
 
-import { publish, producer, onShutdown } from '../shared/bus.js'
-import { TOPICS, type Reading } from '../shared/types.js'
+import { onShutdown } from '../shared/bus.js'
+import { type Reading } from '../shared/types.js'
 import { config } from '../shared/config.js'
 import { DEVICES, FAULTS } from './devices.js'
+
+// Readings go through the ingest service over HTTP, exactly as a real device
+// would send them — not straight onto the bus. Publishing directly would skip
+// validation and persistence and leave ingest untested by the demo.
+async function send(reading: Reading) {
+  try {
+    const res = await fetch(`${config.ingestUrl}/readings`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(reading),
+    })
+    if (!res.ok) console.error(`ingest rejected ${reading.deviceId}: HTTP ${res.status}`)
+  } catch (err) {
+    console.error(`ingest unreachable: ${(err as Error).message}`)
+  }
+}
 
 /** Occupancy 0..1 for a given hour. Flat overnight, humped through the day. */
 function occupancy(hour: number, weekend: boolean): number {
@@ -26,14 +42,13 @@ function occupancy(hour: number, weekend: boolean): number {
 function value(kind: string, occ: number, mid: number, span: number): number {
   const noise = (Math.random() - 0.5) * span * 0.08
   // HVAC drifts up under load; a meter's draw is close to proportional to it.
-  return kind === 'hvac' ? mid + occ * span * 0.35 + noise : mid * 0.5 + occ * span * 0.9 + noise
+  // Both stay comfortably inside the band: a healthy device must never trip a
+  // detector, or the demo proves the opposite of what it claims.
+  return kind === 'hvac' ? mid + occ * span * 0.35 + noise : mid * 0.72 + occ * span * 0.45 + noise
 }
 
 async function main() {
-  const p = await producer()
-  onShutdown(async () => {
-    await p.disconnect()
-  })
+  onShutdown(async () => {})
 
   let simHour = 0
   // Tracks accumulated drift per device, so the fault builds gradually rather
@@ -75,7 +90,7 @@ async function main() {
         unit: d.unit,
         timestamp: Date.now(),
       }
-      await publish(p, TOPICS.readings, d.deviceId, reading)
+      await send(reading)
     }
 
     if (hour === 0) console.log(`simulator: day ${Math.floor(simHour / 24) + 1}${weekend ? ' (weekend)' : ''}`)

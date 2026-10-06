@@ -31,14 +31,23 @@ jobs:
         run: docker compose up -d --wait
 
       - name: Run the pipeline
+        env:
+          # Passed through the environment and validated, never interpolated
+          # into the shell — `${{ }}` inside a run block is a script-injection
+          # hole even when only collaborators can trigger the workflow.
+          RUN_SECONDS: ${{ inputs.seconds }}
         run: |
+          case "$RUN_SECONDS" in
+            ''|*[!0-9]*) echo "seconds must be a positive integer"; exit 1 ;;
+          esac
+          [ "$RUN_SECONDS" -gt 600 ] && { echo "seconds capped at 600"; exit 1; }
           npm run ingest   > /tmp/ingest.log 2>&1 &
           npm run detect   > /tmp/detect.log 2>&1 &
           npm run dispatch > /tmp/dispatch.log 2>&1 &
           sleep 5
           npm run simulate > /tmp/sim.log 2>&1 &
-          echo "Running for ${{ inputs.seconds }}s..."
-          sleep ${{ inputs.seconds }}
+          echo "Running for ${RUN_SECONDS}s..."
+          sleep "$RUN_SECONDS"
 
       - name: What the detector saw
         run: |

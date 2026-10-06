@@ -86,6 +86,19 @@ in building management, because it is silent in every sense.
 So `detect` runs a periodic sweep across all known devices regardless of
 traffic. This is the single most common gap in naive telemetry pipelines.
 
+### Drift is measured against each device's own baseline
+
+Not against the centre of its allowed band. The distinction is the whole
+difference between a useful detector and a noisy one: an electricity meter
+idles overnight and peaks mid-afternoon, so its honest daily mean sits nowhere
+near mid-band. Judging it against band centre flags healthy hardware every
+single day.
+
+So each device learns its own baseline from its first readings, and drift is
+deviation from *that*. The first version of this repo got it wrong, the CI demo
+caught it firing on a device with no seeded fault, and there is now a
+regression test for it.
+
 ### The rules are a pure module
 
 [`src/detect/rules.ts`](src/detect/rules.ts) has no I/O, no broker, and takes
