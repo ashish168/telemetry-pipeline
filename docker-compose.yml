@@ -1,0 +1,39 @@
+# Infrastructure only — the services run on the host via `npm run dev`.
+#
+# Deliberate: nobody evaluating this repo wants to wait on four image builds to
+# see whether it works. Two containers start in seconds, the services start
+# instantly, and the whole thing is inspectable.
+
+services:
+  redpanda:
+    # Kafka-compatible, single binary, no ZooKeeper. Same client library and
+    # same semantics as Kafka; a fraction of the footprint for a demo.
+    image: redpandadata/redpanda:v24.3.1
+    command:
+      - redpanda start
+      - --smp 1
+      - --overprovisioned
+      - --node-id 0
+      - --kafka-addr PLAINTEXT://0.0.0.0:29092,OUTSIDE://0.0.0.0:19092
+      - --advertise-kafka-addr PLAINTEXT://redpanda:29092,OUTSIDE://localhost:19092
+      - --check=false
+    ports:
+      - "19092:19092"
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep -q 'Healthy:.*true'"]
+      interval: 5s
+      retries: 12
+
+  mongo:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      retries: 12
+
+volumes:
+  mongo-data:

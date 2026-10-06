@@ -1,0 +1,30 @@
+{
+  "name": "telemetry-pipeline",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Event-driven telemetry pipeline for building sensor data \u2014 ingest, detect, dispatch.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "ingest": "tsx src/ingest/index.ts",
+    "detect": "tsx src/detect/index.ts",
+    "dispatch": "tsx src/dispatch/index.ts",
+    "simulate": "tsx src/simulator/index.ts",
+    "test": "tsx --test test/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "dev": "./scripts/dev.sh",
+    "infra": "docker compose up -d"
+  },
+  "dependencies": {
+    "fastify": "^5.2.0",
+    "kafkajs": "^2.2.4",
+    "mongodb": "^6.12.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}
