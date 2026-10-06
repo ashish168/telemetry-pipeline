@@ -26,8 +26,8 @@ Within a minute or so you will see detections appearing:
 ```
  ! hvac-a-02 threshold_breach: 3 consecutive readings outside 20–26 celsius (latest 30.4)
 -> hvac-a-02 setpoint_adjust: 3 consecutive readings outside 20–26 celsius (latest 30.4)
- ! meter-a-02 sensor_drift: Window mean 78.3 is 31% from band centre 60.0
--> meter-a-02 flag_for_inspection: Calibration suspect: Window mean 78.3 is 31% from band centre 60.0
+ ! meter-a-02 sensor_drift: Window mean 71.4 is 19% from this device's baseline 60.1
+-> meter-a-02 flag_for_inspection: Calibration suspect: Window mean 71.4 is 19% from this device's baseline 60.1
 !! hvac-b-02 device_silent: No reading for 74s (threshold 60s)
 -> hvac-b-02 notify_operator: Device unreachable: No reading for 74s (threshold 60s)
 ```
@@ -149,6 +149,31 @@ No test framework, no DI container, no message-bus abstraction layer. There is
 one broker and there is no second implementation coming.
 
 ---
+
+## Verified, not asserted
+
+CI runs on every push: the pure rules as unit tests, then the whole pipeline end
+to end — Redpanda and MongoDB started from scratch, all three services running,
+crafted readings posted through the HTTP API, and every detector asserted to
+fire and produce a command.
+
+There is also a **Demo** workflow in the Actions tab that runs the simulator for
+a couple of minutes and prints what the detector saw. A representative run:
+
+```
+readings:  2643
+anomalies: 19
+commands:  19
+
+hvac-a-02   threshold_breach  x15
+hvac-b-02   device_silent     x1
+meter-a-02  sensor_drift      x1
+meter-a-02  threshold_breach  x2
+```
+
+Three devices carry seeded faults; the other five are healthy and stay silent.
+Getting to that took two rounds of fixing false positives that unit tests alone
+never surfaced — both are documented above and both now have regression tests.
 
 ## What this is not
 
