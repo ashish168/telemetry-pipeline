@@ -154,6 +154,42 @@ test('a healthy device operating off-centre but stable does not fire drift', () 
   )
 })
 
+// Regression. Widening the window was not enough on its own: a drift window
+// shorter than one daily cycle measures the time of day, not the sensor. A
+// window landing in the afternoon has a high mean, one landing overnight a low
+// one, and the gap between them looks exactly like drift. The CI demo caught
+// this firing on two healthy meters.
+test('a healthy device on a daily cycle does not fire drift', () => {
+  const meter: Device = {
+    deviceId: 'meter-cyclic',
+    kind: 'electricity_meter',
+    buildingId: 'bldg-a',
+    floor: 0,
+    normalRange: { min: 30, max: 90 },
+    unit: 'kwh',
+  }
+
+  // 24-hour cycle: idle overnight, peaking mid-afternoon. Stable day to day.
+  const atHour = (h: number) => 43 + Math.max(0, Math.sin(((h - 6) / 14) * Math.PI)) * 27
+
+  let w = emptyWindow(T0)
+  const total = DEFAULT_RULES.baselineSize + DEFAULT_RULES.windowSize
+  for (let i = 0; i < total; i++) {
+    w = push(
+      w,
+      { ...reading(atHour(i % 24), i * 1000), deviceId: 'meter-cyclic', kind: 'electricity_meter', unit: 'kwh' },
+      DEFAULT_RULES,
+    )
+  }
+
+  const { anomalies } = evaluate(meter, w, T0 + total * 1000)
+  assert.equal(
+    anomalies.length,
+    0,
+    `a healthy cyclical device must stay silent, got: ${anomalies.map((a) => a.type).join(', ')}`,
+  )
+})
+
 test('window is bounded by windowSize — memory stays O(devices)', () => {
   const w = windowOf(Array(DEFAULT_RULES.windowSize * 3).fill(23))
   assert.equal(w.readings.length, DEFAULT_RULES.windowSize)

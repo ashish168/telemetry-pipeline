@@ -10,6 +10,7 @@
 
 import { MongoClient } from 'mongodb'
 import { DEVICES } from '../src/simulator/devices.js'
+import { DEFAULT_RULES } from '../src/detect/rules.js'
 
 const INGEST = process.env.INGEST_URL ?? 'http://localhost:3000'
 const MONGO = process.env.MONGO_URL ?? 'mongodb://localhost:27017'
@@ -81,10 +82,16 @@ async function main() {
   await waitFor('threshold_breach detected', 30_000,
     has({ deviceId: 'hvac-a-01', type: 'threshold_breach' }))
 
-  // ── Drift: a full window biased well off band centre ──
-  for (let i = 0; i < 20; i++) {
-    await post('meter-a-01', 110)
-    await sleep(100)
+  // ── Drift: establish this device's baseline, then move away from it ──
+  // Drift is relative to the device's own normal, so the baseline has to exist
+  // before a shift means anything.
+  for (let i = 0; i < DEFAULT_RULES.baselineSize; i++) {
+    await post('meter-a-01', 50)
+    await sleep(15)
+  }
+  for (let i = 0; i < DEFAULT_RULES.windowSize; i++) {
+    await post('meter-a-01', 75)
+    await sleep(15)
   }
   await waitFor('sensor_drift detected', 30_000,
     has({ deviceId: 'meter-a-01', type: 'sensor_drift' }))

@@ -19,7 +19,10 @@ import type { Anomaly, Device, Reading } from '../shared/types.js'
 export interface RuleConfig {
   /** Consecutive out-of-band readings before a breach is called. */
   breachStreak: number
-  /** Readings held per device for drift analysis. */
+  /**
+   * Readings held per device for drift analysis. Must span at least one full
+   * operating cycle — see DEFAULT_RULES.
+   */
   windowSize: number
   /** Readings used to establish a device's own baseline before drift is judged. */
   baselineSize: number
@@ -34,8 +37,15 @@ export const DEFAULT_RULES: RuleConfig = {
   // signal. This single number is the difference between a useful alert stream
   // and one operators learn to ignore.
   breachStreak: 3,
-  windowSize: 20,
-  baselineSize: 40,
+  // Building loads are cyclical: near-idle overnight, peaking mid-afternoon.
+  // A drift window shorter than one full cycle measures the time of day rather
+  // than the sensor — a window landing in the afternoon has a high mean, one
+  // landing overnight a low one, and the difference between them looks exactly
+  // like drift. At one reading per hour, 48 spans two complete days.
+  windowSize: 48,
+  // The baseline must span several complete cycles for the same reason, and
+  // enough of them that one unusual day does not define "normal".
+  baselineSize: 96,
   driftTolerance: 0.15,
   silenceMs: 60_000,
 }
