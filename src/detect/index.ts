@@ -11,7 +11,11 @@ import { consume, publish, producer, onShutdown } from '../shared/bus.js'
 import { db } from '../shared/db.js'
 import { TOPICS, type Anomaly, type Reading } from '../shared/types.js'
 import { DEVICES } from '../simulator/devices.js'
+import { config } from '../shared/config.js'
 import { DEFAULT_RULES, emptyWindow, evaluate, push, type DeviceWindow } from './rules.js'
+
+// Defaults, with the two timings that make a CI run take a minute instead of five.
+const RULES = { ...DEFAULT_RULES, silenceMs: config.silenceMs }
 
 const windows = new Map<string, DeviceWindow>()
 const byId = new Map(DEVICES.map((d) => [d.deviceId, d]))
@@ -34,8 +38,8 @@ async function main() {
     if (!device) return
 
     const current = windows.get(reading.deviceId) ?? emptyWindow(reading.timestamp)
-    const pushed = push(current, reading, DEFAULT_RULES)
-    const { anomalies: found, window } = evaluate(device, pushed, Date.now())
+    const pushed = push(current, reading, RULES)
+    const { anomalies: found, window } = evaluate(device, pushed, Date.now(), RULES)
     windows.set(reading.deviceId, window)
     await emit(found)
   })
@@ -47,11 +51,11 @@ async function main() {
     for (const device of DEVICES) {
       const current = windows.get(device.deviceId)
       if (!current) continue
-      const { anomalies: found, window } = evaluate(device, current, now)
+      const { anomalies: found, window } = evaluate(device, current, now, RULES)
       windows.set(device.deviceId, window)
       await emit(found)
     }
-  }, 15_000)
+  }, config.sweepMs)
 
   onShutdown(async () => {
     clearInterval(sweep)

@@ -1,5 +1,7 @@
 # Telemetry pipeline
 
+[![CI](https://github.com/ashish168/telemetry-pipeline/actions/workflows/ci.yml/badge.svg)](https://github.com/ashish168/telemetry-pipeline/actions/workflows/ci.yml)
+
 An event-driven pipeline for building sensor data — ingest, detect, dispatch —
 with a simulator that produces realistic HVAC and electricity-meter telemetry,
 including deliberately seeded faults.
@@ -35,6 +37,14 @@ Tests need no infrastructure at all:
 ```bash
 npm test        # detection rules
 npm run typecheck
+```
+
+And the whole pipeline is verified end to end on every push — CI starts
+Redpanda and MongoDB, runs all three services, and asserts that each detector
+fires:
+
+```bash
+npm run e2e     # against a running stack
 ```
 
 ---

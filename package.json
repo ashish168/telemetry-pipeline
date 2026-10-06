@@ -15,7 +15,8 @@
     "test": "tsx --test test/*.test.ts",
     "typecheck": "tsc --noEmit",
     "dev": "./scripts/dev.sh",
-    "infra": "docker compose up -d"
+    "infra": "docker compose up -d",
+    "e2e": "tsx scripts/e2e.ts"
   },
   "dependencies": {
     "fastify": "^5.2.0",
