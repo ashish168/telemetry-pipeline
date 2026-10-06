@@ -1,0 +1,76 @@
+name: Demo
+
+# Runs the real pipeline with the simulator and prints the live detection
+# stream, so anyone can watch it work without installing anything.
+# Actions tab -> Demo -> Run workflow.
+
+on:
+  workflow_dispatch:
+    inputs:
+      seconds:
+        description: How long to run the simulator
+        default: '90'
+
+jobs:
+  demo:
+    name: Watch the pipeline work
+    runs-on: ubuntu-latest
+    env:
+      TICK_MS: 400      # one simulated hour per tick — a day every ~7s
+      SILENCE_MS: 20000
+      SWEEP_MS: 3000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      - name: Start Redpanda and MongoDB
+        run: docker compose up -d --wait
+
+      - name: Run the pipeline
+        run: |
+          npm run ingest   > /tmp/ingest.log 2>&1 &
+          npm run detect   > /tmp/detect.log 2>&1 &
+          npm run dispatch > /tmp/dispatch.log 2>&1 &
+          sleep 5
+          npm run simulate > /tmp/sim.log 2>&1 &
+          echo "Running for ${{ inputs.seconds }}s..."
+          sleep ${{ inputs.seconds }}
+
+      - name: What the detector saw
+        run: |
+          echo "════════════════════════════════════════════════════════"
+          echo "  ANOMALIES DETECTED"
+          echo "════════════════════════════════════════════════════════"
+          grep -E "^(!!| !)" /tmp/detect.log || echo "(none)"
+          echo
+          echo "════════════════════════════════════════════════════════"
+          echo "  COMMANDS ISSUED"
+          echo "════════════════════════════════════════════════════════"
+          grep -E "^->" /tmp/dispatch.log || echo "(none)"
+          echo
+          echo "════════════════════════════════════════════════════════"
+          echo "  WHAT THE SIMULATOR PRODUCED"
+          echo "════════════════════════════════════════════════════════"
+          head -20 /tmp/sim.log
+
+      - name: Totals
+        run: |
+          docker compose exec -T mongo mongosh telemetry --quiet --eval '
+            print("readings:  " + db.readings.countDocuments({}));
+            print("anomalies: " + db.anomalies.countDocuments({}));
+            print("commands:  " + db.commands.countDocuments({}));
+            print("");
+            print("anomalies by type:");
+            db.anomalies.aggregate([
+              {$group: {_id: {t: "$type", d: "$deviceId"}, n: {$sum: 1}}},
+              {$sort: {"_id.d": 1}}
+            ]).forEach(r => print("  " + r._id.d + "  " + r._id.t + "  x" + r.n));
+          '
+
+      - name: Stop infrastructure
+        if: always()
+        run: docker compose down -v
